@@ -1,0 +1,71 @@
+name: Build OpenWrt for Phicomm K2
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Check out the repository (optional, if you want to store scripts here)
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      # Step 2: Set up the environment
+      - name: Install Dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc wget unzip python3 python3-distutils rsync time
+
+      # Step 3: Clone OpenWrt source code
+      - name: Clone OpenWrt Source
+        run: |
+          git clone https://git.openwrt.org/openwrt/openwrt.git openwrt
+          cd openwrt
+          git checkout v24.10.5  # Use the specific version you need
+
+      # Step 4: Update and install feeds
+      - name: Update Feeds
+        working-directory: openwrt
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      # Step 5: Modify Device Tree for Phicomm K2
+      - name: Patch Device Tree
+        working-directory: openwrt
+        run: |
+          DTS_FILE="target/linux/ramips/dts/PHICOMM_K2.dts"
+          
+          # Change memory to 128MB
+          sed -i 's/reg = <0x0 0x4000000>/reg = <0x0 0x8000000>/' $DTS_FILE
+          
+          # Change flash size to 32MB
+          sed -i 's/reg = <0x30000 0x7d0000>/reg = <0x30000 0xfd0000>/' $DTS_FILE
+          
+          echo "Modified device tree for 128MB RAM and 32MB flash"
+
+      # Step 6: Configure build settings
+      - name: Configure Build
+        working-directory: openwrt
+        run: |
+          echo "CONFIG_TARGET_ramips_mt7620=y" > .config
+          echo "CONFIG_TARGET_ramips_mt7620_DEVICE_phicomm-k2=y" >> .config
+          make defconfig
+
+      # Step 7: Build OpenWrt firmware
+      - name: Build Firmware
+        working-directory: openwrt
+        run: |
+          make -j$(nproc) V=s
+
+      # Step 8: Upload artifacts
+      - name: Upload Firmware
+        uses: actions/upload-artifact@v3
+        with:
+          name: openwrt-firmware
+          path: openwrt/bin/targets/ramips/mt7620/
