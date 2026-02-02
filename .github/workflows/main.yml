@@ -63,9 +63,9 @@ jobs:
         run: |
           make -j$(nproc) V=s
 
-      # Step 8: Upload artifacts
+      # Step 8: Upload artifacts (Updated to v4)
       - name: Upload Firmware
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: openwrt-firmware
           path: openwrt/bin/targets/ramips/mt7620/
