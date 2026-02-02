@@ -1,6 +1,8 @@
 name: Build OpenWrt for Phicomm K2
 
 on:
+  watch:
+    types: [started]
   push:
     branches:
       - main
@@ -8,64 +10,123 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
-      # Step 1: Check out the repository (optional, if you want to store scripts here)
-      - name: Checkout Repository
-        uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      # Step 2: Set up the environment
-      - name: Install Dependencies
+      - name: Initialization environment
         run: |
-          sudo apt update
-          sudo apt install -y build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc wget unzip python3 python3-distutils rsync time
+          sudo apt-get update
+          sudo apt-get install -y build-essential libncurses5-dev libncursesw5-dev \
+            zlib1g-dev gawk git gettext libssl-dev xsltproc rsync wget unzip python3 upx-ucl
 
-      # Step 3: Clone OpenWrt source code
-      - name: Clone OpenWrt Source
+      - name: Clone source code
         run: |
-          git clone https://git.openwrt.org/openwrt/openwrt.git openwrt
+          # 拉取 24.10 稳定版分支
+          git clone --depth 1 -b openwrt-24.10 https://github.com/openwrt/openwrt.git
+
+      - name: Patch for 128M RAM & 32M Flash
+        run: |
           cd openwrt
-          git checkout v24.10.5  # Use the specific version you need
+          DTS_FILE="target/linux/ramips/dts/mt7620a_phicomm_k2-v22.4.dts"
+          # 128M 内存适配
+          sed -i 's/<0x0 0x4000000>/<0x0 0x8000000>/g' $DTS_FILE
+          # 32M 闪存布局适配 (Firmware 分区扩容)
+          sed -i 's/reg = <0x50000 0x7b0000>/reg = <0x50000 0x1fa0000>/g' $DTS_FILE
+          sed -i 's/reg = <0x7f0000 0x10000>/reg = <0x1ff0000 0x10000>/g' $DTS_FILE
 
-      # Step 4: Update and install feeds
-      - name: Update Feeds
-        working-directory: openwrt
+      - name: Patch for Chinese SSID & Build Fix
         run: |
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+          cd openwrt
+          # 修复 LuCI WiFi 扫描中文乱码
+          find feeds/luci -name "*.js" | xargs -r sed -i 's/p.ssid || (p.bssid/decodeURIComponent(escape(p.ssid)) || (p.bssid/g' 2>/dev/null || true
 
-      # Step 5: Modify Device Tree for Phicomm K2
-      - name: Patch Device Tree
-        working-directory: openwrt
+      - name: Custom Configuration (Extreme Optimization)
         run: |
-          DTS_FILE="target/linux/ramips/dts/PHICOMM_K2.dts"
+          cd openwrt
+          echo "CONFIG_TARGET_ramips=y" > .config
+          echo "CONFIG_TARGET_ramips_mt7620=y" >> .config
+          echo "CONFIG_TARGET_ramips_mt7620_DEVICE_phicomm_k2-v22.4=y" >> .config
           
-          # Change memory to 128MB
-          sed -i 's/reg = <0x0 0x4000000>/reg = <0x0 0x8000000>/' $DTS_FILE
-          
-          # Change flash size to 32MB
-          sed -i 's/reg = <0x30000 0x7d0000>/reg = <0x30000 0xfd0000>/' $DTS_FILE
-          
-          echo "Modified device tree for 128MB RAM and 32MB flash"
+          # 【内核与系统压缩：解决体积与性能平衡】
+          echo "CONFIG_KERNEL_GZIP=y" >> .config
+          echo "CONFIG_STRIP_KERNEL_EXPORTS=y" >> .config
+          echo "CONFIG_USE_SSTRIP=y" >> .config
 
-      # Step 6: Configure build settings
-      - name: Configure Build
-        working-directory: openwrt
-        run: |
-          echo "CONFIG_TARGET_ramips_mt7620=y" > .config
-          echo "CONFIG_TARGET_ramips_mt7620_DEVICE_phicomm-k2=y" >> .config
+          # 【管理账户与 SFTP 适配 (Bitvise 专用)】
+          echo "CONFIG_PACKAGE_openssh-sftp-server=y" >> .config 
+          echo "CONFIG_PACKAGE_luci=y" >> .config
+          echo "CONFIG_LUCI_LANG_zh_Hans=y" >> .config
+
+          # 【极度精简：移除无用硬件模块】
+          # 移除蓝牙
+          echo "CONFIG_BLUEZ_LOWDATA=n" >> .config
+          echo "CONFIG_PACKAGE_kmod-bluetooth=n" >> .config
+          echo "CONFIG_PACKAGE_kmod-bt-mt76=n" >> .config
+          # 移除 USB
+          echo "CONFIG_PACKAGE_kmod-usb-core=n" >> .config
+          echo "CONFIG_PACKAGE_kmod-usb-ohci=n" >> .config
+          echo "CONFIG_PACKAGE_kmod-usb2=n" >> .config
+          # 移除不常用协议
+          echo "CONFIG_PACKAGE_kmod-pppox=n" >> .config
+          echo "CONFIG_PACKAGE_kmod-pppoa=n" >> .config
+          
           make defconfig
 
-      # Step 7: Build OpenWrt firmware
-      - name: Build Firmware
-        working-directory: openwrt
+      - name: Create Custom Files
         run: |
-          make -j$(nproc) V=s
+          cd openwrt
+          mkdir -p files/etc/uci-defaults
+          
+          # 预设 root 密码为 root
+          NEW_PASS=$(openssl passwd -1 "root")
+          sed -i "s|^root:[^:]*:|root:${NEW_PASS}:|" package/base-files/files/etc/shadow
 
-      # Step 8: Upload artifacts (Updated to v4)
-      - name: Upload Firmware
+          cat <<EOF > files/etc/uci-defaults/99-custom-settings
+          # 1. LAN IP 192.168.2.1
+          uci set network.lan.ipaddr='192.168.2.1'
+
+          # 2. 系统时区与语言
+          uci set system.@system[0].zonename='Asia/Shanghai'
+          uci set system.@system[0].timezone='CST-8'
+          uci set luci.main.lang='zh_cn'
+
+          # 3. 无线修正 (radio0 为 5G, radio1 为 2.4G)
+          # 5G (radio0)
+          uci set wireless.radio0.country='US'
+          uci set wireless.radio0.bandwidth='80'
+          uci set wireless.radio0.channel='149'
+          uci set wireless.default_radio0.ssid='MiWIFI_5G'
+          uci set wireless.default_radio0.key='12345678'
+          uci set wireless.default_radio0.encryption='psk2'
+          uci set wireless.radio0.disabled='0'
+
+          # 2.4G (radio1)
+          uci set wireless.radio1.country='US'
+          uci set wireless.radio1.bandwidth='40'
+          uci set wireless.radio1.noscan='1'
+          uci set wireless.default_radio1.ssid='MiWIFI'
+          uci set wireless.default_radio1.key='12345678'
+          uci set wireless.default_radio1.encryption='psk2'
+          uci set wireless.radio1.disabled='0'
+
+          # 4. 换源到阿里云
+          sed -i 's/downloads.openwrt.org/mirrors.aliyun.com\/openwrt/g' /etc/opkg/distfeeds.conf
+          
+          uci commit
+          EOF
+          chmod +x files/etc/uci-defaults/99-custom-settings
+
+      - name: Download packages
+        run: cd openwrt && make download -j8
+
+      - name: Compile the firmware
+        run: cd openwrt && make -j$(nproc) || make -j1 V=s
+
+      - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: openwrt-firmware
-          path: openwrt/bin/targets/ramips/mt7620/
+          name: K2-24.10-Extreme-Root-192.168.2.1
+          path: openwrt/bin/targets/ramips/mt7620/*.bin
