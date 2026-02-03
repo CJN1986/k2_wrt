@@ -24,7 +24,7 @@ jobs:
 
       - name: Clone source code
         run: |
-          git clone --depth 1 -b openwrt-24.10 https://github.com/openwrt/openwrt.git
+          git clone --depth 1 -b openwrt-22.03 https://github.com/openwrt/openwrt.git
 
       - name: Patch for 128M RAM & 32M Flash
         run: |
