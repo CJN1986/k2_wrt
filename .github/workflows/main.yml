@@ -24,7 +24,7 @@ jobs:
 
       - name: Clone source code
         run: |
-          git clone --depth 1 -b openwrt-24.10 https://github.com/openwrt/openwrt.git
+          git clone --depth 1 -b openwrt-23.05 https://github.com/openwrt/openwrt.git
 
       - name: Patch for 128M RAM & 32M Flash
         run: |
@@ -55,7 +55,7 @@ jobs:
           echo "CONFIG_TARGET_ramips=y" > .config
           echo "CONFIG_TARGET_ramips_mt7620=y" >> .config
           echo "CONFIG_TARGET_ramips_mt7620_DEVICE_phicomm_k2-v22.4=y" >> .config
-
+          
           # 预装 LuCI、中文语言包及常用基础组件
           echo "CONFIG_PACKAGE_luci=y" >> .config
           echo "CONFIG_LUCI_LANG_zh_Hans=y" >> .config
@@ -68,19 +68,29 @@ jobs:
         run: |
           cd openwrt
           mkdir -p files/etc/uci-defaults
-
+          
           # 1. 预设 root 密码为 root
           NEW_PASS=$(openssl passwd -1 "root")
           sed -i "s|root:[^:]*:|root:${NEW_PASS}:|" package/base-files/files/etc/shadow
 
           # 2. 编写初始化脚本
           cat <<EOF > files/etc/uci-defaults/99-custom-settings
-          uci set network.lan.ipaddr='192.168.2.1'
-
           # 设置时区与语言
           uci set system.@system[0].zonename='Asia/Shanghai'
           uci set system.@system[0].timezone='CST-8'
           uci set luci.main.lang='zh_cn'
+
+          # 配置 2.4G WiFi (MiWIFI / 12345678)
+          uci set wireless.default_radio1.ssid='MiWIFI'
+          uci set wireless.default_radio1.encryption='psk2'
+          uci set wireless.default_radio1.key='12345678'
+          uci set wireless.radio0.disabled='01'
+
+          # 配置 5G WiFi (MiWIFI_5G / 12345678)
+          uci set wireless.default_radio0.ssid='MiWIFI_5G'
+          uci set wireless.default_radio0.encryption='psk2'
+          uci set wireless.default_radio0.key='12345678'
+          uci set wireless.radio1.disabled='0'
 
           # 软件源一键替换为阿里云镜像
           sed -i 's/downloads.openwrt.org/mirrors.aliyun.com\/openwrt/g' /etc/opkg/distfeeds.conf
@@ -89,7 +99,7 @@ jobs:
           EOF
 
           chmod +x files/etc/uci-defaults/99-custom-settings
-          
+
       - name: Download package
         run: cd openwrt && make download -j8
 
