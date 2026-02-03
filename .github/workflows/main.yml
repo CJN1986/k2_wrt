@@ -62,16 +62,16 @@ jobs:
 
           # 【极度精简：移除无用硬件模块】
           # 移除蓝牙
-          echo "CONFIG_BLUEZ_LOWDATA=n" >> .config
-          echo "CONFIG_PACKAGE_kmod-bluetooth=n" >> .config
-          echo "CONFIG_PACKAGE_kmod-bt-mt76=n" >> .config
+          #echo "CONFIG_BLUEZ_LOWDATA=n" >> .config
+          #echo "CONFIG_PACKAGE_kmod-bluetooth=n" >> .config
+          #echo "CONFIG_PACKAGE_kmod-bt-mt76=n" >> .config
           # 移除 USB
-          echo "CONFIG_PACKAGE_kmod-usb-core=n" >> .config
-          echo "CONFIG_PACKAGE_kmod-usb-ohci=n" >> .config
-          echo "CONFIG_PACKAGE_kmod-usb2=n" >> .config
+          #echo "CONFIG_PACKAGE_kmod-usb-core=n" >> .config
+          #echo "CONFIG_PACKAGE_kmod-usb-ohci=n" >> .config
+          #echo "CONFIG_PACKAGE_kmod-usb2=n" >> .config
           # 移除不常用协议
-          echo "CONFIG_PACKAGE_kmod-pppox=n" >> .config
-          echo "CONFIG_PACKAGE_kmod-pppoa=n" >> .config
+          #echo "CONFIG_PACKAGE_kmod-pppox=n" >> .config
+          #echo "CONFIG_PACKAGE_kmod-pppoa=n" >> .config
           
           make defconfig
 
