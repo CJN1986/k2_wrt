@@ -1,4 +1,4 @@
-name: Build OpenWrt for Phicomm K2
+name: Build OpenWrt for K2 (128M+32M+Custom)
 
 on:
   watch:
@@ -20,106 +20,87 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libncurses5-dev libncursesw5-dev \
-            zlib1g-dev gawk git gettext libssl-dev xsltproc rsync wget unzip python3 upx-ucl
+            zlib1g-dev gawk git gettext libssl-dev xsltproc rsync wget unzip python3
 
       - name: Clone source code
         run: |
-          # 拉取 24.10 稳定版分支
-          git clone --depth 1 -b openwrt-24.10 https://github.com/openwrt/openwrt.git
+          # 推荐使用 23.05 版本，兼顾稳定性和插件量
+          git clone --depth 1 -b openwrt-23.05 https://github.com/openwrt/openwrt.git
 
       - name: Patch for 128M RAM & 32M Flash
         run: |
           cd openwrt
           DTS_FILE="target/linux/ramips/dts/mt7620a_phicomm_k2-v22.4.dts"
-          # 128M 内存适配
+          # 修改内存为 128M
           sed -i 's/<0x0 0x4000000>/<0x0 0x8000000>/g' $DTS_FILE
-          # 32M 闪存布局适配 (Firmware 分区扩容)
+          # 修改 Flash 分区：firmware 扩容，art 挪到 32M 末尾
           sed -i 's/reg = <0x50000 0x7b0000>/reg = <0x50000 0x1fa0000>/g' $DTS_FILE
           sed -i 's/reg = <0x7f0000 0x10000>/reg = <0x1ff0000 0x10000>/g' $DTS_FILE
 
-      - name: Patch for Chinese SSID & Build Fix
+      - name: Update & Install feeds
         run: |
           cd openwrt
-          # 修复 LuCI WiFi 扫描中文乱码
-          find feeds/luci -name "*.js" | xargs -r sed -i 's/p.ssid || (p.bssid/decodeURIComponent(escape(p.ssid)) || (p.bssid/g' 2>/dev/null || true
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
 
-      - name: Custom Configuration (Extreme Optimization)
+      - name: Custom Configuration (Language & Sources)
         run: |
           cd openwrt
-          echo "CONFIG_TARGET_ramips=y" > .config
-          echo "CONFIG_TARGET_ramips_mt7620=y" >> .config
-          echo "CONFIG_TARGET_ramips_mt7620_DEVICE_phicomm_k2-v22.4=y" >> .config
-          
-          # 【内核与系统压缩：解决体积与性能平衡】
-          # echo "CONFIG_KERNEL_GZIP=y" >> .config
-          # echo "CONFIG_STRIP_KERNEL_EXPORTS=y" >> .config
-          # echo "CONFIG_USE_SSTRIP=y" >> .config
-
-          # 【管理账户与 SFTP 适配 (Bitvise 专用)】
-          echo "CONFIG_PACKAGE_openssh-sftp-server=y" >> .config 
+          # 1. 默认安装中文语言包和 LuCI 界面
           echo "CONFIG_PACKAGE_luci=y" >> .config
           echo "CONFIG_LUCI_LANG_zh_Hans=y" >> .config
+          echo "CONFIG_PACKAGE_luci-i18n-base-zh-cn=y" >> .config
+          echo "CONFIG_PACKAGE_luci-i18n-opkg-zh-cn=y" >> .config
 
-          # 【极度精简：移除无用硬件模块】
-          # 移除蓝牙
-          #echo "CONFIG_BLUEZ_LOWDATA=n" >> .config
-          #echo "CONFIG_PACKAGE_kmod-bluetooth=n" >> .config
-          #echo "CONFIG_PACKAGE_kmod-bt-mt76=n" >> .config
-          # 移除 USB
-          #echo "CONFIG_PACKAGE_kmod-usb-core=n" >> .config
-          #echo "CONFIG_PACKAGE_kmod-usb-ohci=n" >> .config
-          #echo "CONFIG_PACKAGE_kmod-usb2=n" >> .config
-          # 移除不常用协议
-          #echo "CONFIG_PACKAGE_kmod-pppox=n" >> .config
-          #echo "CONFIG_PACKAGE_kmod-pppoa=n" >> .config
-          
+          # 2. 默认使用阿里云软件源
+          # 将 downloads.openwrt.org 替换为 mirrors.aliyun.com/openwrt
+          sed -i 's/downloads.openwrt.org/mirrors.aliyun.com\/openwrt/g' package/base-files/files/etc/opkg/distfeeds.conf
+
+          # 3. 设置默认型号名称（可选，方便在系统里识别）
+          echo "CONFIG_TARGET_ramips=y" >> .config
+          echo "CONFIG_TARGET_ramips_mt7620=y" >> .config
+          echo "CONFIG_TARGET_ramips_mt7620_DEVICE_phicomm_k2-v22.4=y" >> .config
           make defconfig
 
-      - name: Create Custom Files
+      - name: Create Custom Files (WiFi & Password)
         run: |
           cd openwrt
           mkdir -p files/etc/uci-defaults
-          
-          # 预设 root 密码为 root
+          mkdir -p files/etc/config
+
+          # 设置 root 密码为 root
           NEW_PASS=$(openssl passwd -1 "root")
-          sed -i "s|^root:[^:]*:|root:${NEW_PASS}:|" package/base-files/files/etc/shadow
+          sed -i "s|root:[^:]*:|root:${NEW_PASS}:|" package/base-files/files/etc/shadow
 
+          # 编写初始化脚本：WiFi 和 语言设置
           cat <<EOF > files/etc/uci-defaults/99-custom-settings
-          # 1. LAN IP 192.168.2.1
-          # uci set network.lan.ipaddr='192.168.2.1'
-
-          # 2. 系统时区与语言
-          uci set system.@system[0].zonename='Asia/Shanghai'
-          uci set system.@system[0].timezone='CST-8'
-          uci set luci.main.lang='zh_cn'
-
-          # 3. 无线修正 (radio0 为 5G, radio1 为 2.4G)
-          # 5G (radio0)
+          # 1. WiFi 设置 radio0=5G, radio1=2.4G
           uci set wireless.radio0.country='US'
-          uci set wireless.radio0.bandwidth='80'
           uci set wireless.radio0.channel='149'
           uci set wireless.default_radio0.ssid='MiWIFI_5G'
           uci set wireless.default_radio0.key='12345678'
           uci set wireless.default_radio0.encryption='psk2'
           uci set wireless.radio0.disabled='0'
-
-          # 2.4G (radio1)
           uci set wireless.radio1.country='US'
-          uci set wireless.radio1.bandwidth='40'
-          uci set wireless.radio1.noscan='1'
           uci set wireless.default_radio1.ssid='MiWIFI'
           uci set wireless.default_radio1.key='12345678'
           uci set wireless.default_radio1.encryption='psk2'
           uci set wireless.radio1.disabled='0'
 
-          # 4. 换源到阿里云
-          sed -i 's/downloads.openwrt.org/mirrors.aliyun.com\/openwrt/g' /etc/opkg/distfeeds.conf
-          
-          uci commit
-          EOF
-          chmod +x files/etc/uci-defaults/99-custom-settings
+          # 2. 系统设置：时区和语言
+          uci set system.@system[0].zonename='Asia/Shanghai'
+          uci set system.@system[0].timezone='CST-8'
+          uci set luci.main.lang='zh_cn'
 
-      - name: Download packages
+          # 3. LAN IP 192.168.2.1
+          uci set network.lan.ipaddr='192.168.2.1'
+
+          uci commit wireless
+          uci commit system
+          uci commit luci
+          EOF
+
+      - name: Download package
         run: cd openwrt && make download -j8
 
       - name: Compile the firmware
@@ -128,5 +109,5 @@ jobs:
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: K2-24.10-Extreme-Root-192.168.2.1
+          name: K2-128M-32M-Final-Firmware
           path: openwrt/bin/targets/ramips/mt7620/*.bin
