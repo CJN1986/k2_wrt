@@ -51,9 +51,9 @@ jobs:
           echo "CONFIG_TARGET_ramips_mt7620_DEVICE_phicomm_k2-v22.4=y" >> .config
           
           # 【内核与系统压缩：解决体积与性能平衡】
-          echo "CONFIG_KERNEL_GZIP=y" >> .config
-          echo "CONFIG_STRIP_KERNEL_EXPORTS=y" >> .config
-          echo "CONFIG_USE_SSTRIP=y" >> .config
+          # echo "CONFIG_KERNEL_GZIP=y" >> .config
+          # echo "CONFIG_STRIP_KERNEL_EXPORTS=y" >> .config
+          # echo "CONFIG_USE_SSTRIP=y" >> .config
 
           # 【管理账户与 SFTP 适配 (Bitvise 专用)】
           echo "CONFIG_PACKAGE_openssh-sftp-server=y" >> .config 
@@ -86,7 +86,7 @@ jobs:
 
           cat <<EOF > files/etc/uci-defaults/99-custom-settings
           # 1. LAN IP 192.168.2.1
-          uci set network.lan.ipaddr='192.168.2.1'
+          # uci set network.lan.ipaddr='192.168.2.1'
 
           # 2. 系统时区与语言
           uci set system.@system[0].zonename='Asia/Shanghai'
