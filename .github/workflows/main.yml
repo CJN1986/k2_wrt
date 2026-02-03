@@ -64,7 +64,7 @@ jobs:
 
           make defconfig
 
-      - name: Create Custom Files (WiFi, Password, Source)
+      - name: Create Custom Files
         run: |
           cd openwrt
           mkdir -p files/etc/uci-defaults
@@ -75,22 +75,11 @@ jobs:
 
           # 2. 编写初始化脚本
           cat <<EOF > files/etc/uci-defaults/99-custom-settings
+          uci set network.lan.ipaddr='192.168.2.1'
           # 设置时区与语言
           uci set system.@system[0].zonename='Asia/Shanghai'
           uci set system.@system[0].timezone='CST-8'
           uci set luci.main.lang='zh_cn'
-
-          # 配置 2.4G WiFi (MiWIFI / 12345678)
-          uci set wireless.default_radio1.ssid='MiWIFI'
-          uci set wireless.default_radio1.encryption='psk2'
-          uci set wireless.default_radio1.key='12345678'
-          uci set wireless.radio0.disabled='01'
-
-          # 配置 5G WiFi (MiWIFI_5G / 12345678)
-          uci set wireless.default_radio0.ssid='MiWIFI_5G'
-          uci set wireless.default_radio0.encryption='psk2'
-          uci set wireless.default_radio0.key='12345678'
-          uci set wireless.radio1.disabled='0'
 
           # 软件源一键替换为阿里云镜像
           sed -i 's/downloads.openwrt.org/mirrors.aliyun.com\/openwrt/g' /etc/opkg/distfeeds.conf
